@@ -12,6 +12,15 @@
 -- See the License for the specific language governing permissions and
 -- limitations under the License.
 
+{-# LANGUAGE CPP #-}
+{-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE NoStarIsType #-}
+{-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE UndecidableInstances #-}
+
 -- | Type-level equivalent of a subset of 'Num'.
 --
 -- This provides "kindclasses" (actually open type families) with functionality
@@ -22,20 +31,12 @@
 -- methods into classes that must be implemented all-or-none, but in practice
 -- this seems to be okay.
 
-{-# LANGUAGE CPP #-}
-{-# LANGUAGE ConstraintKinds #-}
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE NoStarIsType #-}
-{-# LANGUAGE PolyKinds #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TypeOperators #-}
-
 module Kinds.Num
          ( -- * Conversions
-           FromNat, ToInteger
+           FromNat, ToNat, ToInteger
 
            -- * Arithmetic
-         , type (+), type (-), type (*)
+         , type (+), type (-), type (*), Negate
          ) where
 
 import Prelude hiding (Integer)
@@ -55,6 +56,10 @@ type family ToInteger (n :: k) :: Integer
 
 type instance ToInteger {- k=Nat -} n = 'Pos n
 
+type family ToNat (n :: k) :: Nat
+
+type instance ToNat {- k=Nat -} n = n
+
 -- | Type-level addition "kindclass".
 type family (x :: k) + (y :: k) :: k
 
@@ -64,6 +69,8 @@ type instance x + y = (N.+) x y  -- HLint doesn't like qualified TypeOperators.
 type family (x :: k) - (y :: k) :: k
 
 type instance x - y = (N.-) x y
+
+type Negate x = FromNat 0 - x
 
 -- | Type-level multiplication "kindclass".
 type family (x :: k) * (y :: k) :: k
