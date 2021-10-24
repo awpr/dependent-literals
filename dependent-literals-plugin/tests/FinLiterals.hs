@@ -22,7 +22,6 @@ module FinLiterals where
 
 import DependentLiterals (AllowsIntLiteral)
 import GHC.TypeNats (CmpNat)
-import Kinds.Integer (pattern Pos)
 import Data.Fin.Int (Fin)
 
 type m < n = CmpNat m n ~ 'LT
@@ -38,6 +37,3 @@ x2 = 4
 
 x3 :: AllowsIntLiteral 4 (Fin n) => Fin n
 x3 = 4
-
-x4 :: AllowsIntLiteral ('Pos 4) (Fin n) => Fin n
-x4 = 4

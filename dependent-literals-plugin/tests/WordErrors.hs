@@ -14,7 +14,7 @@
 
 module WordErrors where
 
-import Data.Word (Word8, Word16, Word)
+import Data.Word (Word8, Word16)
 
 -- Want -Woverflowed-literals warnings for all of these.
 

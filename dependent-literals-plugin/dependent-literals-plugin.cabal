@@ -83,7 +83,6 @@ test-suite FinErrors-test
     , dependent-literals >=0.1.1 && <0.3
     , dependent-literals-plugin
     , fin-int >=0.1 && <0.3
-    , numeric-kinds >=0.1 && <0.3
     , short-vec ==0.1.*
     , sint >=0.1 && <0.3
     , snumber >=0.1 && <0.4
@@ -111,7 +110,6 @@ test-suite IntErrors-test
     , dependent-literals >=0.1.1 && <0.3
     , dependent-literals-plugin
     , fin-int >=0.1 && <0.3
-    , numeric-kinds >=0.1 && <0.3
     , short-vec ==0.1.*
     , sint >=0.1 && <0.3
     , snumber >=0.1 && <0.4
@@ -155,7 +153,6 @@ test-suite Plugin-test
     , dependent-literals >=0.1.1 && <0.3
     , dependent-literals-plugin
     , fin-int >=0.1 && <0.3
-    , numeric-kinds >=0.1 && <0.3
     , short-vec ==0.1.*
     , sint >=0.1 && <0.3
     , snumber >=0.1 && <0.4
@@ -181,7 +178,6 @@ test-suite PolyErrors-test
     , dependent-literals >=0.1.1 && <0.3
     , dependent-literals-plugin
     , fin-int >=0.1 && <0.3
-    , numeric-kinds >=0.1 && <0.3
     , short-vec ==0.1.*
     , sint >=0.1 && <0.3
     , snumber >=0.1 && <0.4
@@ -209,7 +205,6 @@ test-suite SIntErrors-test
     , dependent-literals >=0.1.1 && <0.3
     , dependent-literals-plugin
     , fin-int >=0.1 && <0.3
-    , numeric-kinds >=0.1 && <0.3
     , short-vec ==0.1.*
     , sint >=0.1 && <0.3
     , snumber >=0.1 && <0.4
@@ -237,7 +232,6 @@ test-suite SNumberErrors-test
     , dependent-literals >=0.1.1 && <0.3
     , dependent-literals-plugin
     , fin-int >=0.1 && <0.3
-    , numeric-kinds >=0.1 && <0.3
     , short-vec ==0.1.*
     , sint >=0.1 && <0.3
     , snumber >=0.1 && <0.4
@@ -265,7 +259,6 @@ test-suite WordErrors-test
     , dependent-literals >=0.1.1 && <0.3
     , dependent-literals-plugin
     , fin-int >=0.1 && <0.3
-    , numeric-kinds >=0.1 && <0.3
     , short-vec ==0.1.*
     , sint >=0.1 && <0.3
     , snumber >=0.1 && <0.4

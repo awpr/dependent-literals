@@ -25,7 +25,6 @@ import Data.SNumber (SNumber)
 import Data.Wrapped (Wrapped(..))
 import DependentLiterals (HasIntLiterals)
 import GHC.TypeNats (type (*))
-import Kinds.Integer (Integer(..))
 import Data.Fin.Int (Fin)
 
 newtype MyType = MyType Int
@@ -57,7 +56,7 @@ newtype MyType3 = MyType3 (Fin 4)
 x3 :: MyType3
 x3 = 2
 
-newtype MyType4 n = MyType4 (SNumber Int ('Pos (2 * n)))
+newtype MyType4 n = MyType4 (SNumber Int (2 * n))
   deriving HasIntLiterals
 
 x4 :: MyType4 77
@@ -68,9 +67,6 @@ newtype MyInt8 = MyInt8 Int8
 
 x5 :: MyInt8
 x5 = 42
-
-x6 :: MyInt8
-x6 = -7
 
 newtype MyType5 = MyType5 Int
 #if !defined(__HLINT__)

@@ -13,6 +13,8 @@
 -- limitations under the License.
 
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NoStarIsType #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE PolyKinds #-}
@@ -36,6 +38,43 @@ import Kinds.Ord (type (==?), type (/=?), Compare)
 import Kinds.Num (type (+), type (*), FromNat, ToInteger, ToNat)
 
 data Gamma = One | Bit Gamma Bool
+  deriving (Eq, Ord, Read, Show)
+
+-- A quick evaluation of "singletons" showed that its TH support only exists
+-- for GHC 9.0, and I don't want to drop support for every compiler that
+-- currently has a Stackage snapshot, so... yeah, no singletons.  It's not
+-- /that/ bad to write manually anyway.
+
+data SBool (b :: Bool) where
+  SFalse :: SBool False
+  STrue :: SBool True
+
+instance Show (SBool b) where
+  showsPrec _ = \case
+    STrue -> showString "STrue"
+    SFalse -> showString "SFalse"
+
+class KnownBool b where sbool :: SBool b
+instance KnownBool False where sbool = SFalse
+instance KnownBool True where sbool = STrue
+
+data SGamma (n :: Gamma) where
+  SOne :: SGamma 'One
+  SBit :: SGamma n -> SBool b -> SGamma (Bit n b)
+
+instance Show (SGamma n) where
+  showsPrec p = \case
+    SOne -> showString "SOne"
+    SBit n b -> showParen (p > 10) $
+      showString "SBit " .
+      showsPrec 11 n .
+      showChar ' ' .
+      showsPrec 11 b
+
+class KnownGamma (n :: Gamma) where sgamma :: SGamma n
+instance KnownGamma One where sgamma = SOne
+instance (KnownGamma n, KnownBool b) => KnownGamma (Bit n b) where
+  sgamma = SBit sgamma sbool
 
 -- type-level bidirection pattern synonym?
 type family Bit' (n :: GammaNat) (b :: Bool) = (r :: Gamma) | r -> n b where

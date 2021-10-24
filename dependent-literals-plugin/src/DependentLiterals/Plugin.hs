@@ -105,7 +105,7 @@ import GHC_Hs_Lit (HsOverLit(..), OverLitVal(HsIntegral))
 import GHC_Hs_Expr (HsExpr(HsAppType, HsOverLit, HsApp, NegApp), LHsExpr)
 import GHC_Hs_Extension (GhcPs, GhcPass)
 import GHC_Hs_Type
-         ( HsType(HsAppTy, HsParTy, HsTyLit, HsTyVar)
+         ( HsType(HsParTy, HsTyLit)
          , LHsType, HsConDetails(PrefixCon)
          )
 import GHC_Hs_Pat (LPat, Pat(NPat, ViewPat))
@@ -120,7 +120,7 @@ import GHC_Plugins
          , gopt_set, GeneralFlag(Opt_SuppressModulePrefixes)
          , SrcSpan
          )
-import GHC_Types_Name_Occurrence (OccName, mkTcOcc, mkVarOcc, mkDataOcc)
+import GHC_Types_Name_Occurrence (OccName, mkVarOcc, mkDataOcc)
 import GHC_Types_Name_Reader (RdrName, mkRdrQual, mkRdrUnqual)
 import GHC_Types_SourceText (IntegralLit(IL), SourceText(NoSourceText))
 import GHC_Unit_Module_Name (ModuleName, mkModuleName)
@@ -135,8 +135,7 @@ import GHC_Hs (HsParsedModule(..))
 import GHC.Driver.Ppr (showSDoc)
 import GHC.Parser.Annotation
          ( SrcAnn, SrcSpanAnn'(..), SrcSpanAnnA
-         , EpAnn(EpAnnNotUsed), EpaLocation(EpaDelta)
-         , DeltaPos(SameLine), LocatedN
+         , EpAnn(EpAnnNotUsed)
          , noSrcSpanA, noLocA
          )
 #else
@@ -165,21 +164,15 @@ import Language_Haskell_Syntax_Extension (NoExtField(..))
 import HsExtension (NoExt(..))
 #endif
 
-#if MIN_VERSION_ghc(8,8,0)
-import GHC_Types_Basic (PromotionFlag(..))
-#else
+#if !MIN_VERSION_ghc(8,8,0)
 -- Imports for pre-8.8 compatibily shims.
 import GHC_Plugins (noLoc)
-import HsTypes (Promoted(..))
 #endif
 
 -- Pre-9.2 compatibility shims.
 #if !MIN_VERSION_ghc(9,2,0)
 nl :: a -> Located a
 nl = L noSrcSpan
-
-ieType :: Located name -> IEWrappedName name
-ieType = IEType
 
 type EpAnn = NoExtField
 
@@ -195,9 +188,6 @@ mkPrefixCon = PrefixCon
 #else
 nl :: a -> GenLocated (SrcAnn ann) a
 nl = L noSrcSpanA
-
-ieType :: LocatedN name -> IEWrappedName name
-ieType = IEType (EpaDelta (SameLine 1) [])
 
 toSrcSpanAnnA :: SrcSpan -> SrcSpanAnnA
 toSrcSpanAnnA l = SrcSpanAnn EpAnnNotUsed l
@@ -232,13 +222,6 @@ type ImportDeclQualifiedStyle = Bool
 pattern QualifiedPre, NotQualified :: ImportDeclQualifiedStyle
 pattern QualifiedPre = True
 pattern NotQualified = False
-#endif
-
--- Pre-8.8 compatibility shims.
-#if !MIN_VERSION_ghc(8,8,0)
-type PromotionFlag = Promoted
-pattern IsPromoted :: PromotionFlag
-pattern IsPromoted = Promoted
 #endif
 
 data Config = Config
@@ -312,16 +295,14 @@ transformParsed Config{..} df' (L modLoc HsModule{..}) = do
     , hsmodImports =
         mkModImport litMod Nothing QualifiedPre Nothing :
         unqualLitModImport :
-        qualIntModImport :
         hsmodImports
     , ..
     }
  where
   df = gopt_set df' Opt_SuppressModulePrefixes
 
-  litMod, intMod :: ModuleName
+  litMod :: ModuleName
   litMod = mkModuleName "DependentLiterals.Int"
-  intMod = mkModuleName "Kinds.Integer"
 
   -- import qualified DependentLiterals.Int
   mkModImport nm as q imports = nl $ ImportDecl
@@ -344,23 +325,13 @@ transformParsed Config{..} df' (L modLoc HsModule{..}) = do
   -- TODO can we move this plugin post-renamer and do this by generating names
   -- that claim to have been originally unqualified?
   importVar = IEVar NoExtField . nl . IEName .nl
-  importAll = IEThingAll EpAnnNotUsed . nl . IEName . nl
-  importTyOp = IEThingAbs EpAnnNotUsed . nl . ieType . nl
   unqualLitModImport = mkModImport litMod Nothing NotQualified $ Just
     [ importVar litHashName
-    , importTyOp minusHashName
-    ]
-  qualIntModImport = mkModImport intMod Nothing QualifiedPre $ Just
-    [ importAll integerName
     ]
 
   qual :: OccName -> RdrName
   qual = mkRdrQual litMod
 
-  integerName   = mkRdrUnqual (mkTcOcc "Integer")
-  minusHashName = mkRdrUnqual (mkTcOcc "-#")
-  negName       = mkRdrQual intMod (mkDataOcc "Neg")
-  posName       = mkRdrQual intMod (mkDataOcc "Pos")
   cjustConName  = qual (mkDataOcc "CJust")
   litHashName   = mkRdrUnqual (mkVarOcc "lit#")
   matchHashName = qual (mkVarOcc "match#")
@@ -389,12 +360,11 @@ transformParsed Config{..} df' (L modLoc HsModule{..}) = do
   nlHsApp_ = nlHsApp
 
   litToTyLit :: IntegralLit -> LHsType GhcPs
-  litToTyLit (IL txt neg val) =
-    nl $ HsParTy EpAnnNotUsed $
-    nl $ HsAppTy NoExtField
-      (nl $ HsTyVar EpAnnNotUsed IsPromoted $
-        nl (if neg then negName else posName))
-      (nl $ HsTyLit NoExtField (HsNumTy txt (abs val)))
+  litToTyLit (IL txt neg val)
+    | neg = error "litToTyLit: called on negative literal"
+    | otherwise =
+        nl $ HsParTy EpAnnNotUsed $
+        nl $ HsTyLit NoExtField (HsNumTy txt (abs val))
 
   debug :: String -> Hsc ()
   debug s
@@ -438,11 +408,10 @@ transformParsed Config{..} df' (L modLoc HsModule{..}) = do
     L l $ HsOverLit EpAnnNotUsed $ OverLit NoExtField (HsIntegral il) witness
 
   rewriteLit
-    :: SrcSpanAnnA -> Bool -> IntegralLit -> HsExpr GhcPs -> LHsExpr GhcPs
-  rewriteLit l negated il witness =
-    let il' = fuseNegation negated il
-        wrapper = nlHsVar litHashName `nlHsAppType` litToTyLit il'
-        lit = buildReprLit l il' witness
+    :: SrcSpanAnnA -> IntegralLit -> HsExpr GhcPs -> LHsExpr GhcPs
+  rewriteLit l il witness =
+    let wrapper = nlHsVar litHashName `nlHsAppType` litToTyLit il
+        lit = buildReprLit l il witness
     in  L l $ HsApp EpAnnNotUsed (nlHsApp wrapper lit) lit
 
   foldNegation :: LHsExpr GhcPs -> LHsExpr GhcPs
@@ -451,13 +420,15 @@ transformParsed Config{..} df' (L modLoc HsModule{..}) = do
   foldNegation e = e
 
   transformExp :: LHsExpr GhcPs -> Maybe (LHsExpr GhcPs)
-  transformExp (L l (extractLit -> Just (lit, witness))) =
-    Just $ rewriteLit l False lit witness
+  transformExp (L l (extractLit -> Just (lit, witness)))
+    -- Only touch literals that aren't negative (after 'foldNegation').
+    | IL _ False _ <- lit = Just $ rewriteLit l lit witness
   transformExp _ = Nothing
 
   transformPat :: LPat GhcPs -> Maybe (LPat GhcPs)
-  transformPat (LPat (NPat _ (L l (OverLit _ (HsIntegral il) witness)) negation _)) =
-    let il' = fuseNegation (isJust negation) il
+  transformPat
+      (LPat (NPat _ (L l (OverLit _ (HsIntegral il) witness)) negation _)) =
+    let il'@(IL _ neg _) = fuseNegation (isJust negation) il
 
         -- Wrapper application of match# to the LitRepr.
         wrappedLit =
@@ -466,7 +437,10 @@ transformParsed Config{..} df' (L modLoc HsModule{..}) = do
             `nlHsApp_` buildReprLit (toSrcSpanAnnA l) il' witness
             `nlHsApp_` buildReprLit (toSrcSpanAnnA l) il' witness
 
-    in  Just $ nlPat $ ViewPat EpAnnNotUsed
-            wrappedLit
-            (nlPat $ ConPat EpAnnNotUsed (nl cjustConName) (mkPrefixCon []))
+        newPat = nlPat $ ViewPat EpAnnNotUsed
+          wrappedLit
+          (nlPat $ ConPat EpAnnNotUsed (nl cjustConName) (mkPrefixCon []))
+
+
+    in  if neg then Nothing else Just newPat
   transformPat _ = Nothing

@@ -18,32 +18,22 @@ module SNumberLiterals where
 
 import Data.SNumber (SNumber)
 import DependentLiterals (valueOf)
-import Kinds.Integer (Integer(..))
 import Numeric.Natural (Natural)
 
-x0 :: SNumber Natural ('Pos 0)
+x0 :: SNumber Natural 0
 x0 = 0
 
-x1 :: SNumber Natural ('Pos 4096)
+x1 :: SNumber Natural 4096
 x1 = 4096
 
-x2 :: SNumber Natural ('Pos 77)
+x2 :: SNumber Natural 77
 x2 = valueOf @77
 
-x3 :: SNumber Natural ('Pos 77)
-x3 = valueOf @('Pos 77)
+x3 :: SNumber Natural 77
+x3 = valueOf @77
 
-x4 :: SNumber Int ('Pos 0)
+x4 :: SNumber Int 0
 x4 = 0
 
-x5 :: SNumber Int ('Neg 4)
-x5 = -4
-
-x6 :: SNumber Int ('Neg 77)
-x6 = valueOf @('Neg 77)
-
-x7 :: SNumber Word ('Pos 7)
+x7 :: SNumber Word 7
 x7 = 7
-
-x8 :: SNumber Prelude.Integer ('Neg 44)
-x8 = -44

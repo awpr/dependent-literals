@@ -17,24 +17,20 @@
 module SNumberErrors where
 
 import Data.SNumber (SNumber)
-import Kinds.Integer (Integer(..))
 
 -- Want: could not match type 3 with 2
-x0 :: SNumber Int ('Pos 2)
+x0 :: SNumber Int 2
 x0 = 3
 
 -- Want: some form of "out of range"
-x1 :: SNumber Int ('Pos 9223372036854775808)
+x1 :: SNumber Int 9223372036854775808
 x1 = 9223372036854775808
 
 -- Want: could not match type 3 with 2
-x2 :: SNumber Word ('Pos 2)
+x2 :: SNumber Word 2
 x2 = 3
 
-x3 :: SNumber Word ('Neg 2)
-x3 = -2
-
-x4 :: SNumber Int ('Pos 2) -> String
+x4 :: SNumber Int 2 -> String
 x4 x = case x of
   0 -> "want inaccessible code error: 0 /= 2"
   -1 -> "want inaccessible code error: -1 is negative"
@@ -45,17 +41,13 @@ x5 :: SNumber Int n
 x5 = 4
 
 -- Want: does not match type index.
-x6 :: SNumber Int ('Pos 0)
+x6 :: SNumber Int 0
 x6 = -0
 
 -- Want: does not match type index.
 x7 :: SNumber Int n
 x7 = -0
 
--- Want: illegal -0
-x8 :: SNumber Int ('Neg 0)
-x8 = -0
-
 -- Want: don't know enough about a.
-x9 :: SNumber a ('Pos 0)
+x9 :: SNumber a 0
 x9 = 0

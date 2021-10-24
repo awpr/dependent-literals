@@ -23,34 +23,26 @@
 {-# LANGUAGE UndecidableInstances #-}
 
 module Data.SNumber.Internal
-  ( NegativeReprUnsignedErr
-  , IsAtLeastMinBound, IsLessThanMaxBound
-  , OutOfReprRangeErr, ForbidNegZero
+  ( IsLessThanMaxBound
+  , OutOfReprRangeErr
   ) where
 
 import Data.Kind (Constraint, Type)
 import GHC.TypeLits (TypeError, ErrorMessage(..))
+import GHC.TypeNats (type (-), CmpNat, Nat)
+import Kinds.Ord (Compare)
 
-import Prelude hiding (Integer) -- No term-level stuff in this module anyway.
-import Kinds.Integer (Integer(..))
-import Kinds.Num (type (-))
-import Kinds.Ord (type (<?), type (>=?), Compare)
-
-type family ShowNum (n :: Integer) where
-  ShowNum ('Pos n) = 'ShowType n
-  ShowNum ('Neg n) = 'Text "-" ':<>: 'ShowType n
-
-type ShowTypedNum a n = ShowNum n ':<>: 'Text " :: " ':<>: 'ShowType a
+type ShowTypedNum a n = 'ShowType n ':<>: 'Text " :: " ':<>: 'ShowType a
 
 type ShowRange min maxp1 =
-  'Text "(" ':<>: ShowNum min ':<>: 'Text ".." ':<>:
-  ShowNum (maxp1 - 'Pos 1) ':<>: 'Text ")"
+  'Text "(" ':<>: 'ShowType min ':<>: 'Text ".." ':<>:
+  'ShowType (maxp1 - 1) ':<>: 'Text ")"
 
 type NegativeReprUnsignedMsg repr a n =
   'Text "Negative SNumber with unsigned witness type:" ':$$:
   'Text "  " ':<>: ShowTypedNum (a n) n
 
-class NegativeReprUnsignedErr repr (a :: Integer -> Type) (n :: Integer)
+class NegativeReprUnsignedErr repr (a :: Nat -> Type) (n :: Nat)
 instance TypeError (NegativeReprUnsignedMsg repr a n)
       => NegativeReprUnsignedErr repr a n
 
@@ -60,24 +52,24 @@ type OutOfReprRangeMsg min maxp1 repr a n =
   'Text "The representable range is " ':<>: ShowRange min maxp1
 
 class OutOfReprRangeErr
-        (min :: Integer)
-        (maxp1 :: Integer)
+        (min :: Nat)
+        (maxp1 :: Nat)
         repr
-        (a :: Integer -> Type)
-        (n :: Integer)
+        (a :: Nat -> Type)
+        (n :: Nat)
 instance TypeError (OutOfReprRangeMsg min maxp1 repr a n)
       => OutOfReprRangeErr min maxp1 repr a n
 
-type family Assert b msg :: Constraint where
-  Assert 'True  c = ()
-  Assert 'False c = c
+type family AssertLT o msg :: Constraint where
+  AssertLT 'LT  c = ()
+  AssertLT o    c = c
 
 type family AssertLessThanMaxBound
     u
-    (n :: Integer)
-    (maxp1 :: Integer)
+    (n :: Nat)
+    (maxp1 :: Nat)
     (err :: Constraint) where
-  AssertLessThanMaxBound '() n maxp1 err = Assert (n <? maxp1) err
+  AssertLessThanMaxBound '() n maxp1 err = AssertLT (CmpNat n maxp1) err
 
 type family Reduce (x :: k) :: ()
 type instance Reduce 'LT = '()
@@ -87,29 +79,8 @@ type instance Reduce 'True = '()
 type instance Reduce 'False = '()
 
 class IsLessThanMaxBound
-        (maxp1 :: Integer)
-        (err :: Integer -> Constraint)
-        (n :: Integer)
+        (maxp1 :: Nat)
+        (err :: Nat -> Constraint)
+        (n :: Nat)
 instance AssertLessThanMaxBound (Reduce (Compare n maxp1)) n maxp1 (err n)
       => IsLessThanMaxBound maxp1 err n
-
--- | Assert that a numeric literal is greater than the (negative) min bound.
---
--- This class name is semi-user-facing: it can appear in error messages when
--- trying to use literals of polymorphic or ambiguous types.
-type family AssertAtLeastMinBound u (n :: Integer) (min :: Integer) err where
-   AssertAtLeastMinBound '() n min err = Assert (n >=? min) err
-
-class IsAtLeastMinBound
-        (min :: Integer)
-        (err :: Integer -> Constraint)
-        (n :: Integer)
-instance AssertAtLeastMinBound (Reduce (Compare n min)) n min (err n)
-      => IsAtLeastMinBound min err n
-
-type family ErrorIfNegZero n :: Constraint where
-  ErrorIfNegZero ('Neg 0) = TypeError ('Text "Illegal SNumber -0")
-  ErrorIfNegZero x = ()
-
-class ForbidNegZero (n :: Integer)
-instance ErrorIfNegZero n => ForbidNegZero n

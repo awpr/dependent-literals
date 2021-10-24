@@ -57,7 +57,7 @@ module DependentLiterals.Int
            -- ** Safer Implementations
          , StockLit(..)
          , SNum(..), Satisfying(..), SNumLit(..)
-         , type (-#), CMaybe(..)
+         , CMaybe(..)
 
            -- ** Plugin Entry Points
          , lit#, match#
@@ -82,8 +82,9 @@ import Foreign.C.Types
          , CIntPtr, CUIntPtr, CIntMax, CUIntMax
          , CClock, CTime, CUSeconds, CSUSeconds
          )
+import GHC.Exts (proxy#)
 import GHC.TypeLits (TypeError, ErrorMessage(..))
-import GHC.TypeNats (Nat)
+import GHC.TypeNats (Nat, KnownNat, natVal')
 import Numeric.Natural (Natural)
 import Unsafe.Coerce (unsafeCoerce)
 
@@ -91,14 +92,11 @@ import Data.SInt (SInt(SI#, unSInt))
 import Data.SNumber (SafeSNumber, SNumber(N#), sameSNumber, unsafeMkSNumber)
 import Data.Tagged (Tagged(..))
 import Data.Wrapped (Wrapped(..))
-import Kinds.Integer (type (-#), KnownInteger(..), pattern Pos)
-import Kinds.Num (ToInteger)
-import Kinds.Ord (type (>=), type (<))
-import qualified Kinds.Integer as K (Integer)
 import Data.Fin.Int (Fin, finToInt, unsafeFin)
+import Kinds.Ord (type (<))
 
 import DependentLiterals.Bounds
-         ( CheckAtLeastMinBound, CheckLessThanMaxBound
+         ( CheckLessThanMaxBound
          , AssertEq, OutOfRangeMsg, ShowTypedNum
          )
 
@@ -122,7 +120,7 @@ class SNum a where
   type SNumRepr a :: Type
 
   -- | The constraint on literal values to validate/refine @a@.
-  type SNumConstraint a :: K.Integer -> Constraint
+  type SNumConstraint a :: Nat -> Constraint
 
   -- | Conversion from 'SNumber' with a proof of 'SNumConstraint' into @a@.
   --
@@ -137,10 +135,10 @@ class SNum a where
 instance SNum (SInt n) where
   type SNumRepr (SInt n) = Int
 #if !defined(__HLINT__)
-  type SNumConstraint (SInt n) = (~) ('Pos n)
+  type SNumConstraint (SInt n) = (~) n
 #endif
   fromSNum (Satisfying (N# x)) = SI# x
-  intoSNum x = Satisfying (N# @('Pos n) (unSInt x))
+  intoSNum x = Satisfying (N# @n (unSInt x))
 
 instance SNum (SNumber a n) where
   type SNumRepr (SNumber a n) = a
@@ -150,9 +148,9 @@ instance SNum (SNumber a n) where
   fromSNum (Satisfying x) = x
   intoSNum = Satisfying
 
-class (n < 'Pos m, n >= 'Pos 0)
-   => FinInBounds (m :: Nat) (n :: K.Integer)
-instance (n < 'Pos m, n >= 'Pos 0) => FinInBounds m n
+class n < m
+   => FinInBounds (m :: Nat) (n :: Nat)
+instance n < m => FinInBounds m n
 
 instance SNum (Fin n) where
   type SNumRepr (Fin n) = Int
@@ -175,7 +173,7 @@ class HasIntLiterals a where
   -- Safety contract: 'unsafeFromInteger' and 'unsafeMatchInteger' must not
   -- construct illegal @SNumber n@ values when called with @Tagged \@n n@; they
   -- may use 'ReprAssertion' to restrict the values they can receive.
-  type ReprAssertion a :: Type -> K.Integer -> Constraint
+  type ReprAssertion a :: Type -> Nat -> Constraint
 
   -- | @LitConstraint a n@ constrains or refines @a@ given the literal value.
   --
@@ -183,13 +181,13 @@ class HasIntLiterals a where
   -- numeric pattern; for example, in the case of @SInt n@, @LitConstraint a m@
   -- is @m ~ n@, so that matching numeric 'SInt' patterns introduces equality
   -- proofs for the type parameter.
-  type LitConstraint a :: K.Integer -> Constraint
+  type LitConstraint a :: Nat -> Constraint
 
   -- | Like 'LitConstraint' but with pretty error messages.
   --
   -- This is used on integral literals to provide custom error messages for
   -- failed constraints.
-  type LitAssertion a :: Type -> K.Integer -> Constraint
+  type LitAssertion a :: Type -> Nat -> Constraint
 
   -- | Runtime conversion from 'Integer' to the appropriate type.
   --
@@ -225,8 +223,8 @@ type HasBasicLiterals a =
 -- With this in context along with @'HasIntLiterals' a@, you can use an
 -- integral literal value @n@ at type @a@.  See also 'IntLiteral'.
 type AllowsIntLiteral n a =
-  ( LitAssertion a a (ToInteger n)
-  , ReprAssertion a a (ToInteger n)
+  ( LitAssertion a a n
+  , ReprAssertion a a n
   )
 
 -- | A convenient form of 'IntLiteral' when only one value is needed.
@@ -258,22 +256,18 @@ match#
   => (Num a => a) -> Integer -> a -> CMaybe (LitConstraint a n)
 match# _ = unsafeMatchInteger (Proxy @a) . Tagged @n
 
--- | 'valueOf' specialized to 'Integer'.
-valueOf' :: forall n a. (IntLiteral n a, KnownInteger n) => a
-valueOf' = unsafeFromInteger (Proxy @a) (Tagged @n $ toInteger $ integerVal @n)
+natVal :: forall n. KnownNat n => Natural
+natVal = natVal' @n proxy#
 
 -- | Get the value of a type-level number at runtime, as if it were a literal.
 --
 -- That is, when DependentLiterals is enabled, @42@ and @valueOf \@42@ are the
 -- same thing.  (When it's not enabled, @42@ is just @fromInteger 42@).
-valueOf
-  :: forall n a
-   . (IntLiteral (ToInteger n) a, KnownInteger (ToInteger n))
-  => a
-valueOf = valueOf' @(ToInteger n)
+valueOf :: forall n a. (IntLiteral n a, KnownNat n) => a
+valueOf = unsafeFromInteger (Proxy @a) (Tagged @n $ fromIntegral $ natVal @n)
 
 -- | A newtype carrying a 'HasIntLiterals' instance for use with @DerivingVia@.
-newtype SNumLit (c :: Type -> K.Integer -> Constraint) a = SNumLit a
+newtype SNumLit (c :: Type -> Nat -> Constraint) a = SNumLit a
 
 class SNumConstraint a n => SNumLitAssertion c a b n
 #if !defined(__HLINT__)
@@ -333,7 +327,7 @@ class NoConstraint (a :: k)
 instance NoConstraint a
 
 -- | The "assertion" used by basic integral literals, which is always solvable.
-class NoAssertion (a :: Type) (n :: K.Integer)
+class NoAssertion (a :: Type) (n :: Nat)
 instance NoAssertion a n
 
 instance (Eq a, Num a) => HasIntLiterals (Wrapped Num a) where
@@ -347,7 +341,7 @@ instance (Eq a, Num a) => HasIntLiterals (Wrapped Num a) where
     then CJust
     else CNothing
 
-class n ~ m => SIntLitAssertion (m :: K.Integer) (a :: Type) (n :: K.Integer)
+class n ~ m => SIntLitAssertion (m :: Nat) (a :: Type) (n :: Nat)
 instance AssertEq
            (TypeError
              ('Text "SInt literal value does not match " ':<>:
@@ -357,23 +351,13 @@ instance AssertEq
            m
       => SIntLitAssertion m a n
 
-class (n >= 'Pos 0, n < 'Pos m) => FinLitAssertion m a n
-instance ( CheckLessThanMaxBound
-             (OutOfRangeMsg ('Pos 0) ('Pos m) a n)
-             ('Pos m)
-             a
-             n
-         , CheckAtLeastMinBound
-             (OutOfRangeMsg ('Pos 0) ('Pos m) a n)
-             ('Pos 0)
-             a
-             n
-         )
+class n < m => FinLitAssertion m a n
+instance (CheckLessThanMaxBound (OutOfRangeMsg 0 m a n) m a n)
       => FinLitAssertion m a n
 
 -- HLint doesn't understand any of these because of DerivingVia :/
 #if !defined(__HLINT__)
-deriving via SNumLit (SIntLitAssertion ('Pos n)) (SInt n)
+deriving via SNumLit (SIntLitAssertion n) (SInt n)
   instance HasIntLiterals (SInt n)
 
 deriving via SNumLit (SIntLitAssertion n) (SNumber a n)

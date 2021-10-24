@@ -46,35 +46,28 @@ module DependentLiterals.Bounds
          , OutOfRangeErr
 
            -- ** Inequality Assertions
-         , CheckLessThanMaxBound, CheckAtLeastMinBound, AssertEq, AssertNotApart
+         , CheckLessThanMaxBound, AssertEq, AssertNotApart
 
            -- * Implementation Details
-         , ShowNum, AssertNotApart_, Eql, FailedToProveEq
+         , AssertNotApart_, Eql, FailedToProveEq
          ) where
 
 import Data.Kind (Constraint, Type)
 import GHC.TypeLits (TypeError, ErrorMessage(..))
+import GHC.TypeNats (type (-), Nat)
+import Kinds.Ord (type (<?), type (<))
 
-import Kinds.Integer (pattern Pos, pattern Neg)
-import Kinds.Num (type (-))
-import Kinds.Ord (type (>=?), type (<?), type (<), type (>=))
-import qualified Kinds.Integer as K (Integer)
-
-type family ShowNum (n :: K.Integer) where
-  ShowNum ('Pos n) = 'ShowType n
-  ShowNum ('Neg n) = 'Text "-" ':<>: 'ShowType n
-
-type ShowTypedNum a n = ShowNum n ':<>: 'Text " :: " ':<>: 'ShowType a
+type ShowTypedNum a n = 'ShowType n ':<>: 'Text " :: " ':<>: 'ShowType a
 
 type ShowRange min maxp1 =
-  'Text "(" ':<>: ShowNum min ':<>: 'Text ".." ':<>:
-  ShowNum (maxp1 - 'Pos 1) ':<>: 'Text ")"
+  'Text "(" ':<>: 'ShowType min ':<>: 'Text ".." ':<>:
+  'ShowType (maxp1 - 1) ':<>: 'Text ")"
 
 type OutOfRangeMsg min maxp1 a n =
   'Text "Literal out of range " ':<>: ShowRange min maxp1 ':<>: 'Text ":" ':$$:
   'Text "  " ':<>: ShowTypedNum a n
 
-class OutOfRangeErr (min :: K.Integer) (maxp1 :: K.Integer) (a :: Type) (n :: K.Integer)
+class OutOfRangeErr (min :: Nat) (maxp1 :: Nat) (a :: Type) (n :: Nat)
 instance TypeError (OutOfRangeMsg min maxp1 a n) => OutOfRangeErr min maxp1 a n
 
 type family Eql a b :: Bool where
@@ -98,20 +91,11 @@ instance FailedToProveEq (TypeError msg) a b => AssertNotApart_ msg 'False a b
 
 type AssertNotApart msg a b = AssertNotApart_ msg (Eql a b) a b
 
-class (n < maxp1)
+class n < maxp1
    => CheckLessThanMaxBound
         (msg :: ErrorMessage)
-        (maxp1 :: K.Integer)
+        (maxp1 :: Nat)
         (a :: Type)
-        (n :: K.Integer)
+        (n :: Nat)
 instance AssertNotApart msg (n <? maxp1) 'True
       => CheckLessThanMaxBound msg maxp1 a n
-
-class (n >= min)
-   => CheckAtLeastMinBound
-        (msg :: ErrorMessage)
-        (min :: K.Integer)
-        (a :: Type)
-        (n :: K.Integer)
-instance AssertNotApart msg (n >=? min) 'True
-      => CheckAtLeastMinBound msg min a n

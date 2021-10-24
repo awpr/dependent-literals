@@ -73,8 +73,8 @@ module Data.SNumber
          , reifySNumber, reifySNumberAsNat
 
            -- * Miscellaneous
-         , IntBits, IntMin, IntMaxP1
-         , WordBits, WordMaxP1
+         , IntBits
+         , WordBits
          ) where
 
 import Control.Exception (Exception, throw)
@@ -85,20 +85,22 @@ import Data.Type.Equality ((:~:)(Refl))
 import GHC.Exts
          ( Word(W#), addWordC#, subWordC#, timesWord2#
          , Int(I#), addIntC#, subIntC#, mulIntMayOflo#, (*#)
+         , proxy#
          )
 import GHC.Stack (HasCallStack, withFrozenCallStack)
-import GHC.TypeNats (type (^), KnownNat, Nat, SomeNat(..), someNatVal)
+import GHC.TypeNats
+         ( type (^), type (+), type (-), type (*)
+         , KnownNat, CmpNat, Nat, SomeNat(..)
+         , someNatVal, natVal'
+         )
 import Numeric.Natural (Natural)
 import Unsafe.Coerce (unsafeCoerce)
 
 import Data.SNumber.Internal
-         ( NegativeReprUnsignedErr, OutOfReprRangeErr
-         , IsAtLeastMinBound, IsLessThanMaxBound, ForbidNegZero
+         ( OutOfReprRangeErr
+         , IsLessThanMaxBound
          )
-import Kinds.Integer (CmpInteger, KnownInteger(..), pattern Pos, pattern Neg)
-import qualified Kinds.Integer as K (Integer)
 import Kinds.Ord (OrderingI(..))
-import Kinds.Num (type (+), type (-), type (*))
 
 #include "MachDeps.h"
 
@@ -160,7 +162,7 @@ import Kinds.Num (type (+), type (-), type (*))
 -- using 'trySNumber', and of course it can be solved from a matching instance
 -- in the function's context (which compiles to an @a@ parameter for
 -- @KnownSNumber a n@).
-newtype SNumber a (n :: K.Integer) = MkSNumber# a
+newtype SNumber a (n :: Nat) = MkSNumber# a
   deriving newtype Show
 
 -- Note: we must be extremely careful to prevent GHC from solving
@@ -180,18 +182,18 @@ newtype SNumber a (n :: K.Integer) = MkSNumber# a
 -- * If each pair of parameters with nominal role is equal, and each pair of
 --   parameters with representational role is coercible (note: parameters with
 --   phantom role are ignored), GHC will consider the constraint solved.  In
---   our case, the only parameter involved is the 'Integer'; its inferred role
---   is phantom, which means all coercions over it would be solved; so we must
---   use a role annotation to change it.  The choice between representational
---   and nominal doesn't matter in practice, because GHC will never solve
---   @Coercible {Integer} m n@ anyway.  But we set it to nominal just because
---   that feels more right.
+--   our case, the only parameter involved is the 'Nat'; its inferred role is
+--   phantom, which means all coercions over it would be solved; so we must use
+--   a role annotation to change it.  The choice between representational and
+--   nominal doesn't matter in practice, because GHC will never solve
+--   @Coercible {Nat} m n@ anyway.  But we set it to nominal just because that
+--   feels more right.
 
 -- The 'Type' parameter needs to have nominal role, because coercing between
 -- types with different Eq/Ord instances is unsafe.
 --
 -- See above on 'SNumber' for a description of the coercion behavior of the
--- 'Integer' parameter.
+-- 'Nat' parameter.
 type role SNumber nominal nominal
 
 -- | Create an 'SNumber' for @n@, with no safety measures whatsoever.
@@ -199,7 +201,7 @@ type role SNumber nominal nominal
 -- This pattern is identical to the newtype constructor of 'SNumber' except
 -- that it isn't actualy a newtype constructor, so having it in scope doesn't
 -- allow unsound coercions across 'SNumber' types.
-pattern N# :: forall (n :: K.Integer) a. a -> SNumber a n
+pattern N# :: forall (n :: Nat) a. a -> SNumber a n
 pattern N# x = MkSNumber# x
 {-# COMPLETE N# #-}
 
@@ -211,7 +213,7 @@ pattern N# x = MkSNumber# x
 -- 'N#', it'd allow unsafely changing an 'SNumber'\'s representation without
 -- using any identifiers that indicate unsafety, by way of record update
 -- syntax.
-pattern SN :: forall (n :: K.Integer) a. a -> SNumber a n
+pattern SN :: forall (n :: Nat) a. a -> SNumber a n
 pattern SN {unSNumber} <- MkSNumber# unSNumber
 {-# COMPLETE SN #-}
 
@@ -219,63 +221,50 @@ data KnownSNumberDict a n = KnownSNumber a n => KnownSNumberDict
 
 -- | Treat 'SNumber' as if it were a GADT containing a 'KnownSNumber' instance.
 pattern SNumber
-  :: forall (n :: K.Integer) a. SNumberRepr a => KnownSNumber a n => SNumber a n
+  :: forall (n :: Nat) a. SNumberRepr a => KnownSNumber a n => SNumber a n
 pattern SNumber <-
   ((\x -> reifySNumber x (KnownSNumberDict @a @n)) -> KnownSNumberDict)
  where
   SNumber = snumberVal
 {-# COMPLETE SNumber #-}
 
-class LitIsAnything (n :: K.Integer)
-instance ForbidNegZero n => LitIsAnything n
+class LitIsAnything (n :: Nat)
+instance LitIsAnything n
 
 class LitIsUnsignedBits
         (w :: Nat)
         repr
-        (a :: K.Integer -> Type)
-        (n :: K.Integer)
-instance ( IsAtLeastMinBound ('Pos 0) (NegativeReprUnsignedErr repr a) n
-         , IsLessThanMaxBound
-             ('Pos (2 ^ w))
-             (OutOfReprRangeErr ('Pos 0) ('Pos (2 ^ w)) repr a)
+        (a :: Nat -> Type)
+        (n :: Nat)
+instance ( IsLessThanMaxBound
+             (2 ^ w)
+             (OutOfReprRangeErr 0 (2 ^ w) repr a)
              n
-         , ForbidNegZero n
          )
       => LitIsUnsignedBits w repr a n
 
 type SignedReprRangeErr w =
-  OutOfReprRangeErr ('Neg (2 ^ (w - 1))) ('Pos (2 ^ (w - 1)))
+  -- OutOfReprRangeErr ('Neg (2 ^ (w - 1))) ('Pos (2 ^ (w - 1)))
+  OutOfReprRangeErr 0 (2 ^ (w - 1))
 
-class LitIsSignedBits (w :: Nat) repr (a :: K.Integer -> Type) (n :: K.Integer)
-instance ( IsAtLeastMinBound
-             ('Neg (2 ^ (w - 1)))
+class LitIsSignedBits (w :: Nat) repr (a :: Nat -> Type) (n :: Nat)
+-- instance ( IsAtLeastMinBound
+--              ('Neg (2 ^ (w - 1)))
+--              (SignedReprRangeErr w repr a)
+--              n
+--         , IsLessThanMaxBound
+instance ( IsLessThanMaxBound
+             (2 ^ (w - 1))
              (SignedReprRangeErr w repr a)
              n
-         , IsLessThanMaxBound
-             ('Pos (2 ^ (w - 1)))
-             (SignedReprRangeErr w repr a)
-             n
-         , ForbidNegZero n
          )
       => LitIsSignedBits w repr a n
-
-type LitIsNonNegative repr a =
-  IsAtLeastMinBound ('Pos 0) (NegativeReprUnsignedErr repr a)
 
 -- | The number of bits in the present system's 'Word' type.
 type WordBits = WORD_SIZE_IN_BITS
 
--- | One more than the largest representable 'Word' value.
-type WordMaxP1 = 'Pos (2 ^ WordBits)
-
 -- | The number of bits in the present system's 'Int' type.
 type IntBits = WORD_SIZE_IN_BITS
-
--- | The smallest representable 'Int' value.
-type IntMin = 'Neg (2 ^ (IntBits - 1))
-
--- | One more than the largest representable 'Int' value.
-type IntMaxP1 = 'Pos (2 ^ (IntBits - 1))
 
 -- | The class of types that are suitable for use as integer value witnesses.
 --
@@ -286,10 +275,10 @@ type IntMaxP1 = 'Pos (2 ^ (IntBits - 1))
 -- Furthermore, it requires that every value of @a@ is an integer, i.e. that
 -- @forall x :: a. exists y :: Integer. x == fromInteger y, toInteger x == y@.
 -- This ensures we can wrap any @a@ in @SomeSNumberVal@ and be sure it
--- corresponds to a valid @K.Integer@.
+-- corresponds to a valid @Nat@.
 class Integral a => SNumberRepr a where
   -- | @SafeSNumber a n@ witnesses that @'N#' n@ is a valid @'SNumber' a n@.
-  type SafeSNumber a :: K.Integer -> Constraint
+  type SafeSNumber a :: Nat -> Constraint
 
 instance SNumberRepr Int where
   type SafeSNumber Int = LitIsSignedBits IntBits Int (SNumber Int)
@@ -301,16 +290,19 @@ instance SNumberRepr Integer where
   type SafeSNumber Integer = LitIsAnything
 
 instance SNumberRepr Natural where
-  type SafeSNumber Natural = LitIsNonNegative Natural (SNumber Natural)
+  type SafeSNumber Natural = LitIsAnything
+
+natVal :: forall n. KnownNat n => Natural
+natVal = natVal' @n proxy#
 
 -- | Construct an 'SNumber', doing all validation at the type level.
 --
 -- This is completely safe and cannot raise runtime errors.
 snumber
   :: forall n a
-   . (SNumberRepr a, SafeSNumber a n, KnownInteger n)
+   . (SNumberRepr a, SafeSNumber a n, KnownNat n)
   => SNumber a n
-snumber = unsafeMkSNumber (fromInteger (integerVal @n))
+snumber = unsafeMkSNumber (fromIntegral (natVal @n))
 
 -- | Create an 'SNumber' for @n@, if it's faithfully represented by @a@.
 --
@@ -318,17 +310,17 @@ snumber = unsafeMkSNumber (fromInteger (integerVal @n))
 -- at runtime whether @a@ can represent @n@ correctly.
 trySNumber
   :: forall n a
-   . (SNumberRepr a, KnownInteger n)
+   . (SNumberRepr a, KnownNat n)
   => Maybe (SNumber a n)
-trySNumber = unsafeTryMkSNumber (integerVal @n)
+trySNumber = unsafeTryMkSNumber (natVal @n)
 
--- | Create an 'SNumber' from a 'KnownInteger' constraint without any checks.
+-- | Create an 'SNumber' from a 'KnownNat' constraint without any checks.
 --
 -- This will cause type unsoundness if the value is not correctly represented
 -- by @a@ or if the instances of @a@ do not behave according to the safety
 -- requirements described on 'SNumber'.
-unsafeUncheckedSNumber :: forall n a. (Num a, KnownInteger n) => SNumber a n
-unsafeUncheckedSNumber = unsafeUncheckedMkSNumber (fromInteger (integerVal @n))
+unsafeUncheckedSNumber :: forall n a. (Num a, KnownNat n) => SNumber a n
+unsafeUncheckedSNumber = unsafeUncheckedMkSNumber (fromIntegral (natVal @n))
 
 -- | Semi-safely construct an 'SNumber' as if by 'N#'.
 --
@@ -351,10 +343,10 @@ unsafeMkSNumber = N#
 --
 -- This tests at runtime whether @a@ represents @n@ correctly.
 unsafeTryMkSNumber
-  :: forall n a. SNumberRepr a => Integer -> Maybe (SNumber a n)
+  :: forall n a. SNumberRepr a => Natural -> Maybe (SNumber a n)
 unsafeTryMkSNumber x =
   let x' = fromIntegral x
-  in  if toInteger x' /= x then Nothing else Just (N# x')
+  in  if toInteger x' /= toInteger x then Nothing else Just (N# x')
 {-# INLINE unsafeTryMkSNumber #-}
 
 -- | Create an 'SNumber' for @n@, with no safety measures whatsoever.
@@ -378,16 +370,16 @@ class KnownSNumber a n where
   -- This has an inconvenient type variable order because it derives from the
   -- order they appear in the class head; see 'snumberVal'.
   snumberVal_ :: SNumber a n
-  default snumberVal_ :: (SNumberRepr a, KnownInteger n) => SNumber a n
+  default snumberVal_ :: (SNumberRepr a, KnownNat n) => SNumber a n
   snumberVal_ = fromMaybe (error "KnownSNumber: unrepresentable") trySNumber
 
--- TODO(awpr): GHC might helpfully simplify this to KnownInteger in inferred
--- type signatures, so we'll still end up passing Integers around and have
--- runtime type conversions?  But we only infer signatures for bindings in
--- let/where clauses, so presumably GHC will solve a 'KnownSNumber' using
--- either a 'KnownSNumber' or 'KnownInteger' instance that's already available,
--- thus doing the best we could do in context?
-instance (SNumberRepr a, KnownInteger n) => KnownSNumber a n
+-- TODO(awpr): GHC might helpfully simplify this to KnownNat in inferred type
+-- signatures, so we'll still end up passing Integers around and have runtime
+-- type conversions?  But we only infer signatures for bindings in let/where
+-- clauses, so presumably GHC will solve a 'KnownSNumber' using either a
+-- 'KnownSNumber' or 'KnownNat' instance that's already available, thus doing
+-- the best we could do in context?
+instance (SNumberRepr a, KnownNat n) => KnownSNumber a n
 
 -- | Get an 'SNumber' out of the context from 'KnownSNumber' or 'KnownNat'.
 --
@@ -402,12 +394,12 @@ snumberVal = snumberVal_
 compareSNumber
   :: forall m n a. Ord a => SNumber a m -> SNumber a n -> OrderingI m n
 compareSNumber (N# x) (N# y) = case compare x y of
-  LT -> case unsafeCoerce Refl :: CmpInteger m n :~: 'LT of Refl -> LTI
+  LT -> case unsafeCoerce Refl :: CmpNat m n :~: 'LT of Refl -> LTI
   EQ ->
-    case unsafeCoerce Refl :: CmpInteger m n :~: 'EQ of
+    case unsafeCoerce Refl :: CmpNat m n :~: 'EQ of
       Refl -> case unsafeCoerce Refl :: m :~: n of
         Refl -> EQI
-  GT -> case unsafeCoerce Refl :: CmpInteger m n :~: 'GT of Refl -> GTI
+  GT -> case unsafeCoerce Refl :: CmpNat m n :~: 'GT of Refl -> GTI
 
 -- | Test equality of two type-level 'Integer's using their runtime witnesses.
 sameSNumber :: Eq a => SNumber a m -> SNumber a n -> Maybe (m :~: n)
@@ -428,17 +420,17 @@ reifySNumber n r = f n
 reifySNumberAsNat
   :: forall n r a
    . Integral a
-  => SNumber a ('Pos n) -> (KnownNat n => r) -> r
+  => SNumber a n -> (KnownNat n => r) -> r
 reifySNumberAsNat (N# x) r = case someNatVal (fromIntegral x) of
   SomeNat (_ :: Proxy m) -> case unsafeCoerce Refl :: n :~: m of Refl -> r
 
--- | An 'SNumber' with an existential 'K.Integer' type parameter.
+-- | An 'SNumber' with an existential 'Nat' type parameter.
 data SomeSNumber a = forall n. SomeSNumber (SNumber a n)
 
 -- | Create an @'SNumber' a@ from any value of type @a@.
 --
 -- Since 'SNumberRepr' guarantees every @a@ value is an integer, we can freely
--- wrap up a value in an 'SNumber' with existential 'K.Integer' type parameter.
+-- wrap up a value in an 'SNumber' with existential 'Nat' type parameter.
 someSNumberVal :: SNumberRepr a => a -> SomeSNumber a
 someSNumberVal x = withSNumber x SomeSNumber
 
