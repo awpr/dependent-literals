@@ -33,7 +33,6 @@ extra-source-files:
 dependencies:
   - base >= 4.12 && < 4.17
   - fin-int >= 0.1 && < 0.3
-  - numeric-kinds >= 0.1 && < 0.3
   - sint >= 0.1 && < 0.3
   - snumber >= 0.1 && < 0.4
   - tagged >= 0.8 && < 0.9

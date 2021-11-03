@@ -1,4 +1,4 @@
--- Copyright 2020-2021 Google LLC
+-- Copyright 2021 Google LLC
 --
 -- Licensed under the Apache License, Version 2.0 (the "License");
 -- you may not use this file except in compliance with the License.
@@ -12,12 +12,21 @@
 -- See the License for the specific language governing permissions and
 -- limitations under the License.
 
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MagicHash #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE NoStarIsType #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeFamilyDependencies #-}
 {-# LANGUAGE TypeOperators #-}
@@ -31,11 +40,26 @@
 
 module Kinds.Gamma where
 
+import Data.Bits (shiftL, shiftR, setBit, testBit)
+import Data.Type.Equality ((:~:)(..))
+import GHC.TypeLits (TypeError, ErrorMessage(Text))
 import GHC.TypeNats (Nat, Div, Mod)
+import Numeric.Natural (Natural)
 
+import Data.SNumber (SNumber(SN, N#), sameSNumber, snumberVal)
+import DependentLiterals.Int
+         ( HasIntLiterals, SNum(..), Satisfying(..), SNumLit(..)
+         )
 import Kinds.Integer (pattern Pos)
 import Kinds.Ord (type (==?), type (/=?), Compare)
 import Kinds.Num (type (+), type (*), FromNat, ToInteger, ToNat)
+
+import Unsafe.Coerce
+         ( unsafeCoerce
+#if MIN_VERSION_base(4, 15, 0)
+         , unsafeEqualityProof, UnsafeEquality(..)
+#endif
+         )
 
 data Gamma = One | Bit Gamma Bool
   deriving (Eq, Ord, Read, Show)
@@ -58,9 +82,14 @@ class KnownBool b where sbool :: SBool b
 instance KnownBool False where sbool = SFalse
 instance KnownBool True where sbool = STrue
 
+reifyBool :: SBool b -> (KnownBool b => r) -> r
+reifyBool STrue r = r
+reifyBool SFalse r = r
+
 data SGamma (n :: Gamma) where
   SOne :: SGamma 'One
   SBit :: SGamma n -> SBool b -> SGamma (Bit n b)
+  deriving HasIntLiterals via SNumLit (SGammaCheck n) (SGamma n)
 
 instance Show (SGamma n) where
   showsPrec p = \case
@@ -70,6 +99,62 @@ instance Show (SGamma n) where
       showsPrec 11 n .
       showChar ' ' .
       showsPrec 11 b
+
+unsafeCastSGamma :: SGamma m -> SGamma n
+unsafeCastSGamma = unsafeCoerce
+
+-- Given a (possibly-expensive) equality proof, return a fake one of the same
+-- type that doesn't evaluate the real one.  This is fine iff the proof is
+-- total; otherwise, it allows proving nonsense, e.g.
+-- @unsafeAssertTotal (let x = x in x :: Int :~: Bool)@
+unsafeAssertTotal :: forall a b. a :~: b -> a :~: b
+unsafeAssertTotal _ =
+#if MIN_VERSION_base(4, 15, 0)
+  case unsafeEqualityProof @a @b of UnsafeRefl -> Refl
+#else
+  unsafeCoerce (Refl :: a :~: a)
+#endif
+
+gammaToNatIso :: n :~: NatToGamma (GammaToNat n)
+gammaToNatIso = unsafeCoerce (Refl :: n :~: n)
+
+class (ToNat n ~ m, n ~ FromNat m) => SGammaConstraint (n :: Gamma) m
+instance (ToNat n ~ m, n ~ FromNat m) => SGammaConstraint n m
+
+class SGammaConstraint n m => SGammaCheck n a m
+instance SGammaConstraint n m => SGammaCheck n a m
+
+instance SNum (SGamma n) where
+  type SNumRepr (SGamma n) = Natural
+  type SNumConstraint (SGamma n) = SGammaConstraint n
+
+  fromSNum (Satisfying (SN x))
+    | x == 0    = error "Impossible: SNumber 0 with SGammaConstraint"
+    | otherwise = go x unsafeCastSGamma
+   where
+    go :: Natural -> (forall a. SGamma a -> r) -> r
+    go 1 k = k SOne
+    go n k
+      | n > 1 =
+          let !n' = n `shiftR` 1
+              !b = testBit n 0
+          in  go n' $ \bs -> if b then k (SBit bs STrue) else k (SBit bs SFalse)
+      | otherwise = error "Impossible: SNumber < 1 with SGammaConstraint"
+
+  intoSNum sg =
+    case gammaToNatIso @n of Refl -> Satisfying (N# (go sg))
+   where
+    go :: SGamma m -> Natural
+    go SOne = 1
+    go (SBit bs b) = putBit b (go bs `shiftL` 1)
+
+    putBit :: SBool b -> Natural -> Natural
+    putBit STrue  = (`setBit` 0)
+    putBit SFalse = id
+
+reifyGamma :: SGamma n -> (KnownGamma n => r) -> r
+reifyGamma SOne r = r
+reifyGamma (SBit n b) r = reifyBool b $ reifyGamma n r
 
 class KnownGamma (n :: Gamma) where sgamma :: SGamma n
 instance KnownGamma One where sgamma = SOne
@@ -84,6 +169,7 @@ type family Bit' (n :: GammaNat) (b :: Bool) = (r :: Gamma) | r -> n b where
 type Odd (x :: Nat) = 1 ==? Mod x 2
 
 type family NatToGamma (n :: Nat) :: Gamma where
+  NatToGamma 0 = TypeError (Text "Invalid NatToGamma 0: Gamma represents >= 1")
   NatToGamma 1 = One
   NatToGamma n = Bit (NatToGamma (Div n 2)) (Odd n)
 
@@ -185,6 +271,33 @@ type instance Compare x y = CmpGamma x y
 -- | Naturals formed by adjoining a zero onto 'Gamma'.
 data GammaNat = NZ | NP Gamma
 
+data SGammaNat (n :: GammaNat) where
+  SZ :: SGammaNat NZ
+  SP :: SGamma n -> SGammaNat (NP n)
+  deriving HasIntLiterals via SNumLit (SGammaNatCheck n) (SGammaNat n)
+
+class (ToNat n ~ m, n ~ FromNat m) => SGammaNatConstraint (n :: GammaNat) m
+instance (ToNat n ~ m, n ~ FromNat m) => SGammaNatConstraint n m
+
+class SGammaNatConstraint n m => SGammaNatCheck n a m
+instance SGammaNatConstraint n m => SGammaNatCheck n a m
+
+instance SNum (SGammaNat n) where
+  type SNumRepr (SGammaNat n) = Natural
+  type SNumConstraint (SGammaNat n) = SGammaNatConstraint n
+
+  fromSNum (Satisfying (sn :: SNumber Natural x)) =
+    case sameSNumber (snumberVal @0) sn of
+      Just Refl -> SZ
+      _ -> case unsafeCoerce (Refl :: n :~: n) :: n :~: NP (NatToGamma x) of
+        Refl -> SP (fromSNum (Satisfying sn))
+
+  intoSNum SZ = Satisfying snumberVal
+  intoSNum (SP n) = case intoSNum n of
+    Satisfying (n' :: SNumber Natural x) ->
+      case unsafeCoerce (Refl :: n :~: n) :: NatToGNat x :~: n of
+        Refl -> Satisfying n'
+
 -- | Heh, @GNat@.
 type family NatToGNat (n :: Nat) :: GammaNat where
   NatToGNat 0 = NZ
@@ -205,6 +318,10 @@ type family BitOne (n :: GammaNat) :: Gamma where
   BitOne NZ = One
   BitOne (NP x) = Bit x True
 
+bitOne :: SGammaNat n -> SGamma (BitOne n)
+bitOne SZ = SOne
+bitOne (SP n) = SBit n STrue
+
 type family GammaNatBit (n :: GammaNat) (b :: Bool) :: GammaNat where
   GammaNatBit x      True  = NP (BitOne x)
   GammaNatBit NZ     False = NZ
@@ -217,10 +334,16 @@ type family GammaNatBit (n :: GammaNat) (b :: Bool) :: GammaNat where
 type family PredGamma (n :: Gamma) :: GammaNat where
   -- 1 - 1 = 0
   PredGamma One = NZ
-  -- (2n + 1) - 1 = 2n
-  PredGamma (Bit x True) = NP (Bit x False)
   -- (2n + 0) - 1 = 2(n-1) + 1  | n > 0      (and it is, because it's 'Gamma')
   PredGamma (Bit x False) = NP (BitOne (PredGamma x))
+  -- (2n + 1) - 1 = 2n
+  PredGamma (Bit x True) = NP (Bit x False)
+
+predGamma :: SGamma n -> SGammaNat (PredGamma n)
+predGamma SOne = SZ
+predGamma (SBit bs b) = case b of
+  SFalse -> SP (bitOne (predGamma bs))
+  STrue  -> SP (SBit bs SFalse)
 
 type family GammaNatPlus (x :: GammaNat) (y :: GammaNat) :: GammaNat where
   GammaNatPlus NZ     y      = y

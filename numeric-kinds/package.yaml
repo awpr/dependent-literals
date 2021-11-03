@@ -37,6 +37,8 @@ extra-source-files:
 
 dependencies:
   - base >= 4.12 && < 4.17
+  - dependent-literals >= 0.1 && < 0.3 # (TODO bump dependent-literals)
+  - snumber >= 0.1 && < 0.3
   - type-compare >= 0.1 && < 0.2
 
 library:
@@ -49,3 +51,16 @@ library:
   when:
     condition: false
     other-modules: Paths_numeric_kinds
+
+tests:
+  Gamma-test:
+    main: Test.hs
+    source-dirs: test
+    dependencies:
+      - numeric-kinds
+      - dependent-literals-plugin >= 0.1 && < 0.2
+
+    when:
+      condition: false
+      other-modules: Paths_numeric_kinds
+

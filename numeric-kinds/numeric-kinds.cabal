@@ -41,5 +41,21 @@ library
     src
   build-depends:
     base >=4.12 && <4.17,
+    dependent-literals >=0.1 && <0.3,
+    snumber >=0.1 && <0.3,
+    type-compare ==0.1.*
+  default-language: Haskell2010
+
+test-suite Gamma-test
+  type: exitcode-stdio-1.0
+  main-is: Test.hs
+  hs-source-dirs:
+    test
+  build-depends:
+    base >=4.12 && <4.17,
+    dependent-literals >=0.1 && <0.3,
+    dependent-literals-plugin ==0.1.*,
+    numeric-kinds,
+    snumber >=0.1 && <0.3,
     type-compare ==0.1.*
   default-language: Haskell2010

@@ -46,7 +46,8 @@ module DependentLiterals.Bounds
          , OutOfRangeErr
 
            -- ** Inequality Assertions
-         , CheckLessThanMaxBound, AssertEq, AssertNotApart
+         , CheckLessThanMaxBound
+         , AssertEq, AssertNotApart
 
            -- * Implementation Details
          , AssertNotApart_, Eql, FailedToProveEq

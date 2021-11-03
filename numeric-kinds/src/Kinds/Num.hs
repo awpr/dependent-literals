@@ -37,12 +37,17 @@ module Kinds.Num
 
            -- * Arithmetic
          , type (+), type (-), type (*), Negate
+
+           -- * Naturals
+         , Succ, Pred, Zero
          ) where
 
 import Prelude hiding (Integer)
 
 import GHC.TypeNats (Nat)
 import qualified GHC.TypeNats as N (type (+), type (-), type (*))
+
+import Kinds.Ord (CompareCond)
 
 import {-# source #-}  Kinds.Integer (Integer(..))
 
@@ -76,3 +81,15 @@ type Negate x = FromNat 0 - x
 type family (x :: k) * (y :: k) :: k
 
 type instance x * y = (N.*) x y
+-- | Type-level successor "kindclass".
+type family Succ (n :: k) :: k
+
+type instance Succ (n :: Nat) = 1 + n
+
+-- | Zero, for any type with 'FromNat'.
+type Zero = FromNat 0
+
+-- | Type-level predecessor "kindclass".
+type family Pred (n :: k) :: Maybe k
+
+type instance Pred (n :: Nat) = CompareCond n 0 Nothing Nothing (Just (n - 1))
